@@ -46,8 +46,7 @@ jobs:
           echo "apksigner: $APKSIGNER"
           OUT=$("$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/*.apk 2>&1) || true
           echo "$OUT"
-          ACTUAL=$(printf '%s
-' "$OUT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          ACTUAL=$(echo "$OUT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           echo "signer: $ACTUAL"
           test "$ACTUAL" = "$EXPECTED"
       - name: Upload APK

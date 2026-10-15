@@ -1,0 +1,37 @@
+# Build-only workflow for the SparkyFitness backend branch (fork only, not part of the PR).
+name: SparkyFitness APK
+
+on:
+  push:
+    branches: ['ci/**']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-java@v4.7.1
+        with:
+          distribution: zulu
+          java-version: '21'
+          cache: gradle
+      - name: Unit tests and debug APK
+        run: ./gradlew --no-daemon --console=plain testDebugUnitTest assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: openScale-sync-debug-apk
+          path: src/app/build/outputs/apk/debug/*.apk
+          retention-days: 14
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: unit-test-results
+          path: src/app/build/test-results/testDebugUnitTest/*.xml
+          retention-days: 14

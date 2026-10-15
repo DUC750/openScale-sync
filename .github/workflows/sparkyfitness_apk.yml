@@ -21,16 +21,30 @@ jobs:
           java-version: '21'
           cache: gradle
       # Fixed debug key (secret), so every build installs as an update of the previous one.
-      # AGP picks up ~/.android/debug.keystore (storepass/keypass android, alias androiddebugkey).
+      # Passed explicitly via AGP's injected signing properties: a keystore dropped into
+      # ~/.android was silently ignored on the runner (AGP generated its own key).
       - name: Install fixed debug keystore
         env:
           DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
         run: |
           test -n "$DEBUG_KEYSTORE_B64" || { echo "secret DEBUG_KEYSTORE_B64 missing"; exit 1; }
-          mkdir -p ~/.android
-          printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/debug.keystore"
       - name: Unit tests and debug APK
-        run: ./gradlew --no-daemon --console=plain testDebugUnitTest assembleDebug
+        run: >
+          ./gradlew --no-daemon --console=plain testDebugUnitTest assembleDebug
+          -Pandroid.injected.signing.store.file="$RUNNER_TEMP/debug.keystore"
+          -Pandroid.injected.signing.store.password=android
+          -Pandroid.injected.signing.key.alias=androiddebugkey
+          -Pandroid.injected.signing.key.password=android
+      # Fail instead of shipping an APK signed with some other key.
+      - name: Verify signing certificate
+        env:
+          EXPECTED: 9a94969aaa63c4c4884788e788f1f37d574f76bf221bc0876310136a848a749e
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          ACTUAL=$("$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/*.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          echo "signer: $ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
       - name: Upload APK
         uses: actions/upload-artifact@v4.6.2
         with:

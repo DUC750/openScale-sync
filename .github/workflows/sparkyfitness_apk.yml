@@ -20,6 +20,15 @@ jobs:
           distribution: zulu
           java-version: '21'
           cache: gradle
+      # Fixed debug key (secret), so every build installs as an update of the previous one.
+      # AGP picks up ~/.android/debug.keystore (storepass/keypass android, alias androiddebugkey).
+      - name: Install fixed debug keystore
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          test -n "$DEBUG_KEYSTORE_B64" || { echo "secret DEBUG_KEYSTORE_B64 missing"; exit 1; }
+          mkdir -p ~/.android
+          printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
       - name: Unit tests and debug APK
         run: ./gradlew --no-daemon --console=plain testDebugUnitTest assembleDebug
       - name: Upload APK

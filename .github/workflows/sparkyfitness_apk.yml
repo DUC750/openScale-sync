@@ -1,0 +1,65 @@
+# Build-only workflow for the SparkyFitness backend branch (fork only, not part of the PR).
+name: SparkyFitness APK
+
+on:
+  push:
+    branches: ['ci/**']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-java@v4.7.1
+        with:
+          distribution: zulu
+          java-version: '21'
+          cache: gradle
+      # Fixed debug key (secret), so every build installs as an update of the previous one.
+      # Passed explicitly via AGP's injected signing properties: a keystore dropped into
+      # ~/.android was silently ignored on the runner (AGP generated its own key).
+      - name: Install fixed debug keystore
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          test -n "$DEBUG_KEYSTORE_B64" || { echo "secret DEBUG_KEYSTORE_B64 missing"; exit 1; }
+          printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/debug.keystore"
+      - name: Unit tests and debug APK
+        run: >
+          ./gradlew --no-daemon --console=plain testDebugUnitTest assembleDebug
+          -Pandroid.injected.signing.store.file="$RUNNER_TEMP/debug.keystore"
+          -Pandroid.injected.signing.store.password=android
+          -Pandroid.injected.signing.key.alias=androiddebugkey
+          -Pandroid.injected.signing.key.password=android
+      # Fail instead of shipping an APK signed with some other key.
+      - name: Verify signing certificate
+        env:
+          EXPECTED: 9a94969aaa63c4c4884788e788f1f37d574f76bf221bc0876310136a848a749e
+        run: |
+          ls -la app/build/outputs/apk/debug/
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          echo "apksigner: $APKSIGNER"
+          OUT=$("$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/*.apk 2>&1) || true
+          echo "$OUT"
+          # apksigner <=36 prints "Signer #1 certificate ...", 37 prints "V2 Signer: certificate ...".
+          ACTUAL=$(echo "$OUT" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
+          echo "signer: $ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
+      - name: Upload APK
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: openScale-sync-debug-apk
+          path: src/app/build/outputs/apk/debug/*.apk
+          retention-days: 14
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: unit-test-results
+          path: src/app/build/test-results/testDebugUnitTest/*.xml
+          retention-days: 14
